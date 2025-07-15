@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <title>Speedcube Ao5 Timer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background: white;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 2em;
+    }
+    #scramble {
+      font-size: 1.4em;
+      margin: 20px 0;
+    }
+
+    #controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 40px;
+      margin-top: 20px;
+    }
+
+    .control {
+      display: inline-block;
+      width: 110px;
+      height: 110px;
+      line-height: 110px;
+      background: #eee;
+      border-radius: 50%;
+      font-size: 2em;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .center-column {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 200px;
+    }
+
+    #timer {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 4em;
+      margin-bottom: 10px;
+      min-width: 180px;
+      text-align: center;
+      color: black;
+    }
+
+    #times, #summary {
+      margin-top: 10px;
+      font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <h1>Speedcube Ao5 Timer</h1>
+  <div id="scramble">Scramble: </div>
+
+  <div id="controls">
+    <div class="control" id="leftBtn">🖐️</div>
+    <div class="center-column">
+      <div id="timer">0.00</div>
+      <div id="times"></div>
+      <div id="summary"></div>
+    </div>
+    <div class="control" id="rightBtn">🖐️</div>
+  </div>
+
+  <script>
+    const scrambleEl = document.getElementById("scramble");
+    const timerEl = document.getElementById("timer");
+    const timesEl = document.getElementById("times");
+    const summaryEl = document.getElementById("summary");
+    const leftBtn = document.getElementById("leftBtn");
+    const rightBtn = document.getElementById("rightBtn");
+
+    const moves = ["R", "R'", "R2", "L", "L'", "L2", "U", "U'", "U2", "D", "D'", "D2", "F", "F'", "F2", "B", "B'", "B2"];
+
+    let scramble = "";
+    let countdownInterval = null;
+    let timerInterval = null;
+    let countdownValue = 15;
+    let elapsed = 0;
+    let penalty = 0;
+    let counter = 0;
+    let times = [];
+    let state = 'waiting';
+    let ctrlKeys = new Set();
+    let leftPressed = false;
+    let rightPressed = false;
+    let countdownStarted = false;
+    let awaitingTimerStart = false;
+
+    function generateScramble() {
+      let result = [];
+      let lastFace = "";
+      while (result.length < 20) {
+        let move = moves[Math.floor(Math.random() * moves.length)];
+        if (move[0] !== lastFace) {
+          result.push(move);
+          lastFace = move[0];
+        }
+      }
+      scramble = result.join(" ");
+      scrambleEl.textContent = "Scramble: " + scramble;
+    }
+
+    function reset() {
+      clearInterval(countdownInterval);
+      clearInterval(timerInterval);
+      countdownValue = 15;
+      elapsed = 0;
+      penalty = 0;
+      timerEl.textContent = "0.00";
+      timerEl.style.color = "black";
+      state = 'waiting';
+      countdownStarted = false;
+      awaitingTimerStart = false;
+    }
+
+    function updateCountdownColor() {
+      if (countdownValue >= 8) {
+        timerEl.style.color = "green";
+      } else if (countdownValue >= 3) {
+        timerEl.style.color = "orange";
+      } else {
+        timerEl.style.color = "red";
+      }
+    }
+
+    function startCountdown() {
+      if (countdownStarted) return;
+      countdownStarted = true;
+      state = 'countdown';
+      countdownValue = 15;
+      timerEl.textContent = countdownValue;
+      updateCountdownColor();
+      countdownInterval = setInterval(() => {
+        countdownValue--;
+        updateCountdownColor();
+        timerEl.textContent = countdownValue;
+        if (countdownValue <= -2) {
+          clearInterval(countdownInterval);
+          penalty = 60;
+          awaitingTimerStart = false;
+        }
+      }, 1000);
+    }
+
+    function startTimer() {
+      clearInterval(countdownInterval);
+      state = 'timing';
+      elapsed = 0;
+      timerInterval = setInterval(() => {
+        elapsed += 0.01;
+        timerEl.textContent = elapsed.toFixed(2);
+      }, 10);
+      timerEl.style.color = "black";
+    }
+
+    function stopTimerAndRecord() {
+      clearInterval(timerInterval);
+      let totalTime = elapsed;
+
+      if (countdownValue === 0 || countdownValue === -1) penalty = 2;
+      else if (countdownValue <= -2) penalty = 60;
+      else penalty = 0;
+
+      let finalTime = (totalTime + penalty).toFixed(2);
+      times.push(parseFloat(finalTime));
+      counter++;
+
+      displayTimes();
+
+      if (counter === 5) {
+        let ao5 = computeAo5(times);
+        summaryEl.innerHTML = `Ao5: ${ao5.toFixed(2)}`;
+        setTimeout(() => {
+          if (confirm("Ao5 hotovo. Spustit novou session?")) {
+            times = [];
+            counter = 0;
+            summaryEl.innerHTML = "";
+            timesEl.innerHTML = "";
+            reset();
+            generateScramble();
+          }
+        }, 200);
+      } else {
+        reset();
+        generateScramble();
+      }
+    }
+
+    function displayTimes() {
+      timesEl.innerHTML = times.map(t => t.toFixed(2)).join(", ");
+      if (counter === 4) {
+        let bpa = averageExcluding(times, Math.max(...times));
+        let wpa = averageExcluding(times, Math.min(...times));
+        summaryEl.innerHTML = `BPA: ${bpa.toFixed(2)}, WPA: ${wpa.toFixed(2)}`;
+      }
+    }
+
+    function averageExcluding(arr, excludeVal) {
+      let sum = arr.reduce((a, b) => a + b, 0) - excludeVal;
+      return sum / (arr.length - 1);
+    }
+
+    function computeAo5(arr) {
+      if (arr.length < 5) return 0;
+      let sorted = [...arr].sort((a, b) => a - b);
+      let trimmed = sorted.slice(1, 4);
+      return trimmed.reduce((a, b) => a + b, 0) / 3;
+    }
+
+    function bothPressed() {
+      return (leftPressed && rightPressed) || ctrlKeys.size >= 2;
+    }
+
+    function bothReleased() {
+      return (!leftPressed && !rightPressed && ctrlKeys.size === 0);
+    }
+
+    // Mouse controls
+    leftBtn.addEventListener("mousedown", () => {
+      leftPressed = true;
+      if (!countdownStarted && bothPressed()) {
+        startCountdown();
+      } else if (state === 'countdown' && !awaitingTimerStart) {
+        awaitingTimerStart = true;
+      }
+    });
+    leftBtn.addEventListener("mouseup", () => {
+      leftPressed = false;
+      if (state === 'countdown' && awaitingTimerStart && bothReleased()) {
+        startTimer();
+      }
+    });
+
+    rightBtn.addEventListener("mousedown", () => {
+      rightPressed = true;
+      if (!countdownStarted && bothPressed()) {
+        startCountdown();
+      } else if (state === 'countdown' && !awaitingTimerStart) {
+        awaitingTimerStart = true;
+      }
+    });
+    rightBtn.addEventListener("mouseup", () => {
+      rightPressed = false;
+      if (state === 'countdown' && awaitingTimerStart && bothReleased()) {
+        startTimer();
+      }
+    });
+
+    // Keyboard controls
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Control") {
+        ctrlKeys.add(e.code);
+        if (!countdownStarted && bothPressed()) {
+          startCountdown();
+        } else if (state === 'countdown' && !awaitingTimerStart) {
+          awaitingTimerStart = true;
+        }
+      }
+    });
+
+    document.addEventListener("keyup", (e) => {
+      if (e.key === "Control") {
+        ctrlKeys.delete(e.code);
+        if (state === 'countdown' && awaitingTimerStart && bothReleased()) {
+          startTimer();
+        }
+      }
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Control" && state === "timing" && ctrlKeys.size === 2) {
+        stopTimerAndRecord();
+      }
+    });
+
+    generateScramble();
+    reset();
+  </script>
+</body>
+</html>
